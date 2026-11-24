@@ -19,6 +19,10 @@ format:
     transition: none
     controls: true
     menu: false
+resources:
+  - vendor/
+  - media/
+  - fig/*.svg
 execute:
   echo: false
 ---
