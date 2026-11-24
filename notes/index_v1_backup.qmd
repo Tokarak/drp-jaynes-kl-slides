@@ -1,0 +1,523 @@
+---
+title: "Expected evidence"
+subtitle: "KL divergence, hypothesis tests, and why likelihoods concentrate"
+author: "Jaynes reading group · session after Ch 4"
+date: 2026-11-23
+format:
+  revealjs:
+    theme: [default, drp.scss]
+    width: 1280
+    height: 720
+    margin: 0.06
+    slide-number: c/t
+    hash-type: number
+    html-math-method: mathjax
+    transition: none
+    controls: true
+    chalkboard: false
+    menu: false
+execute:
+  echo: false
+---
+
+
+## Today
+
+::: {.hidden}
+$$
+\newcommand{\KL}[2]{D_{\mathrm{KL}}\!\left(#1\,\middle\|\,#2\right)}
+\newcommand{\e}{e}
+\newcommand{\E}{\mathbb{E}}
+\newcommand{\dB}{\,\mathrm{dB}}
+$$
+:::
+
+1. **Likelihood vs sampling distribution.** One table, read two ways.
+2. **Evidence in decibels.** Recap of Ch 4 (led by a student).
+3. **Expected evidence**, i.e. *Kullback–Leibler divergence*.
+4. **Properties.** Always $\ge 0$, not symmetric.
+5. **Hypothesis tests.** Neyman–Pearson, Stein, Wald ≡ Jaynes' widget robot.
+6. **Why likelihoods concentrate.** A preview of entropy (Ch 11).
+
+::: {.notes}
+0:00–1:00. Frame: last week we found evidence adds up. Today's question: *before* we look at the data, how much evidence should we expect to get? The answer has a name, and it runs through the rest of the book.
+:::
+
+# Part 1: Likelihood {background-color="#f3f8fc"}
+
+## One table, two readings
+
+$P(D\mid\theta X)$ for $D$ = "$k$ heads in $n=10$ tosses", $\;\theta$ = chance of heads.
+
+```{ojs}
+lchoose = (n, k) => { let s = 0; for (let i = 1; i <= k; i++) s += Math.log(n - k + i) - Math.log(i); return s; }
+pmf = (k, n, t) => (t <= 0 ? (k === 0 ? 1 : 0) : t >= 1 ? (k === n ? 1 : 0)
+                  : Math.exp(lchoose(n, k) + k * Math.log(t) + (n - k) * Math.log1p(-t)))
+N = 10
+grid = d3.range(0, 1.0001, 0.02)
+cells = grid.flatMap(t => d3.range(N + 1).map(k => ({t1: t - 0.01, t2: t + 0.01, k1: k - 0.5, k2: k + 0.5, p: pmf(k, N, t)})))
+```
+
+```{ojs}
+//| panel: input
+//| layout-ncol: 2
+viewof th0 = Inputs.range([0, 1], {step: 0.01, value: 0.3, label: "fix θ (column)"})
+viewof k0 = Inputs.range([0, N], {step: 1, value: 7, label: "fix k (row)"})
+```
+
+```{ojs}
+{
+  const heat = Plot.plot({
+    width: 420, height: 360, marginLeft: 50, marginBottom: 45, style: {fontSize: "15px"},
+    x: {label: "θ", domain: [0, 1]}, y: {label: "data k", domain: [-0.5, N + 0.5]},
+    color: {scheme: "viridis"},
+    marks: [
+      Plot.rect(cells, {x1: "t1", x2: "t2", y1: "k1", y2: "k2", fill: "p"}),
+      Plot.ruleX([th0], {stroke: "#0072b2", strokeWidth: 3}),
+      Plot.ruleY([k0], {stroke: "#d55e00", strokeWidth: 3})
+    ]
+  });
+  const samp = Plot.plot({
+    width: 370, height: 360, marginLeft: 55, marginBottom: 45, style: {fontSize: "15px"},
+    x: {label: "k"}, y: {label: "P(k | θ)", domain: [0, 1]},
+    marks: [Plot.barY(d3.range(N + 1), {x: d => d, y: d => pmf(d, N, th0), fill: "#0072b2"}),
+            Plot.text([`Σₖ = 1`], {frameAnchor: "top-right", fontSize: 16})]
+  });
+  const th = d3.range(0, 1.0001, 0.005);
+  const L = th.map(t => pmf(k0, N, t));
+  const area = d3.sum(L) * 0.005;
+  const lik = Plot.plot({
+    width: 370, height: 360, marginLeft: 55, marginBottom: 45, style: {fontSize: "15px"},
+    x: {label: "θ", domain: [0, 1]}, y: {label: "L(θ)", domain: [0, 1]},
+    marks: [Plot.areaY(th, {x: d => d, y: d => pmf(k0, N, d), fill: "#d55e00", fillOpacity: 0.15}),
+            Plot.line(th, {x: d => d, y: d => pmf(k0, N, d), stroke: "#d55e00", strokeWidth: 3}),
+            Plot.text([`∫ L dθ = ${area.toFixed(3)}`], {frameAnchor: "top-left", dx: 8, fontSize: 16})]
+  });
+  const cap = (t, c, el) => html`<div><div style="font-size:22px;font-weight:600;color:${c};text-align:center">${t}</div>${el}</div>`;
+  return html`<div style="display:flex;gap:14px;justify-content:center;align-items:flex-end">
+    ${cap("P(k | θ): the whole table", "#222", heat)}
+    ${cap(`fix θ = ${th0.toFixed(2)}: sampling distribution`, "#0072b2", samp)}
+    ${cap(`fix k = ${k0}: likelihood L(θ)`, "#d55e00", lik)}</div>`;
+}
+```
+
+::: {.notes}
+1:00–5:00. Interactive. Drag θ: the blue bars always sum to 1. That's a probability distribution *over data*. Drag k: the orange curve is the same numbers read along a row. Ask: "Is the orange curve a probability distribution over θ?" Its area is 1/(n+1) = 0.091, so no.
+Backup if offline: the static version is in the appendix.
+:::
+
+## Likelihood is not a probability of $\theta$
+
+::: {.columns}
+::: {.column width="55%"}
+- [Fix $\theta$]{.B}: $k\mapsto P(k\mid\theta X)$ is a **sampling distribution** that sums to 1 over $k$.
+- [Fix $D$]{.A}: $\theta\mapsto L(\theta) \equiv P(D\mid\theta X)$ is the **likelihood**.
+  - It is not a density in $\theta$. Here $\int_0^1 L\,d\theta = \tfrac{1}{n+1}$.
+  - It is only defined up to a constant, so only **ratios** $L(\theta_1)/L(\theta_2)$ mean anything.
+- Bayes' theorem turns it into something that *is* a distribution over $\theta$:
+$$
+\underbrace{p(\theta\mid DX)}_{\text{posterior}} \;\propto\; \underbrace{p(\theta\mid X)}_{\text{prior}}\;\underbrace{L(\theta)}_{\text{likelihood}}
+$$
+:::
+::: {.column width="45%"}
+::: {.ask}
+**Ask.** We observe $k=7$. Which is bigger, $L(0.7)$ or $L(0.5)$? By how many dB?
+:::
+::: {.fragment .small}
+$10\log_{10}\dfrac{0.7^7\,0.3^3}{0.5^{10}} = 10\log_{10}\dfrac{0.002224}{0.000977} \approx +3.6\dB$
+:::
+:::
+:::
+
+::: {.notes}
+5:00–7:00. Key words: "ratios only". This is what Ch 4 used: P(D|AX)/P(D|BX). Let them do the calculation on the board.
+:::
+
+## Watching Bayes' theorem work
+
+<video data-src="media/BayesUpdate.mp4" controls width="1000" style="display:block;margin:0 auto;border:1px solid #eee"></video>
+
+[Prior Beta(2,5) is deliberately **not** flat, so posterior ≠ likelihood. True $\theta^\ast = 0.7$.]{.small .muted}
+
+::: {.notes}
+7:00–10:00. Pause at n = 8 (the animation pauses itself): 4 heads and 4 tails. The likelihood peaks at 0.5, but the posterior sits around 0.4 because the prior pulls it left. Then let it run: the likelihood gets narrower and swamps the prior. Question to plant: *why* does the likelihood peak end up at θ*? We answer that in Part 6.
+:::
+
+# Part 2: Evidence in decibels {background-color="#fdf5f0"}
+
+## Recap of Jaynes §4.1–4.2 {.smaller}
+
+::: {.columns}
+::: {.column width="52%"}
+Evidence for $H$ (4.8):
+$$
+\e(H\mid DX) \equiv 10\log_{10} \frac{P(H\mid DX)}{P(\bar H\mid DX)}\quad[\mathrm{dB}]
+$$
+For independent data $D_1, D_2, \dots$, evidence **adds** (4.13):
+$$
+\e(H\mid DX) = \e(H\mid X) + \sum_i 10\log_{10}\frac{P(D_i\mid HX)}{P(D_i\mid \bar HX)}
+$$
+:::
+::: {.column width="48%"}
+Widgets. Eleven machines; **one** makes $\tfrac13$ defective.
+
+- [$A$]{.A}: we have the bad batch ($\tfrac13$ defective)
+- [$B$]{.B}: we have a good batch ($\tfrac16$ defective)
+- prior: $\e(A\mid X) = 10\log_{10}\tfrac{1/11}{10/11} = -10\dB$
+
+| widget | $10\log_{10}\frac{P(\cdot\mid A)}{P(\cdot\mid B)}$ |
+|---|---|
+| bad  | $10\log_{10}2 = +3.01\dB$ |
+| good | $10\log_{10}\frac{4}{5} = -0.97\dB$ |
+:::
+:::
+
+::: {.fragment}
+$\e(A\mid DX) \approx -10 + 3n_b - n_g$ (4.22). Robot: **reject** if $\e > 0$, **accept** if $\e < -13\dB$, else test another.
+:::
+
+::: {.notes}
+10:00–18:00. RETURNING STUDENT LEADS THIS SLIDE (give them the clicker). Ask them to explain: why log? (products become sums). Why dB? (Weber–Fechner, Jaynes' 1 dB ≈ smallest perceptible change). Have the group work out Jaynes' (4.23): 12 widgets, 5 bad. Answer: −10 + 5(3.01) − 7(0.97) = −1.7 dB, so P(A|DX) ≈ 0.40. Fun fact: a bad widget is exactly 1 bit of evidence (likelihood ratio 2).
+:::
+
+## Quick check
+
+::: {.ask}
+We test 12 widgets and find 5 bad. What is $\e(A\mid DX)$, and what is $P(A\mid DX)$?
+:::
+
+::: {.fragment}
+$$
+\e(A\mid DX) = -10 + 5(3.010) + 7(-0.969) = -1.73\dB
+$$
+$$
+P(A\mid DX) = \frac{1}{1+10^{0.173}} \approx 0.40
+$$
+:::
+
+::: {.fragment}
+At what fraction of bad widgets is there **no** evidence either way? (4.25)
+$$
+f_b\log 2 + (1-f_b)\log\tfrac45 = 0 \;\Longrightarrow\; f_b = \frac{\log(5/4)}{\log(5/2)} = 0.2435
+$$
+[(not exactly $\tfrac14$: the $+3$ and $-1$ were rounded)]{.small .muted}
+:::
+
+# Part 3: Expected evidence {background-color="#f3f8fc"}
+
+## Before we test a single widget...
+
+::: {.ask}
+Suppose [$A$]{.A} is true. **On average**, how many dB does one widget add to $\e(A\mid DX)$?
+:::
+
+::: {.fragment}
+$$
+\E_{x\sim P(\cdot\mid A)}\!\left[10\log_{10}\frac{P(x\mid A)}{P(x\mid B)}\right]
+= \tfrac13(+3.010) + \tfrac23(-0.969) = \color{#d55e00}{+0.357\dB/\text{widget}}
+$$
+:::
+
+::: {.fragment}
+And if [$B$]{.B} is true, how fast does $\e(A\mid DX)$ *fall*?
+$$
+\tfrac16(-3.010) + \tfrac56(+0.969) = \color{#0072b2}{-0.306\dB/\text{widget}}
+$$
+:::
+
+::: {.fragment}
+These are not the same size. The bad batch is **easier to unmask** than the good batch is to clear.
+:::
+
+::: {.notes}
+18:00–21:00. Make them compute it. Many will guess the two answers are equal. The asymmetry is the main surprise of the session.
+:::
+
+## Kullback–Leibler divergence = expected evidence
+
+::: {.thm}
+[Definition.]{.thm-title} For distributions $p, q$ on the same outcomes,
+$$
+\KL{p}{q} \;=\; \sum_x p(x)\,\log\frac{p(x)}{q(x)} \;=\; \E_{x\sim p}\!\left[\log\frac{p(x)}{q(x)}\right].
+$$
+:::
+
+- With $\log = 10\log_{10}$ it is measured in dB. It is the **expected evidence per observation for $p$ against $q$, when $p$ is true**.
+  - Units: 1 bit $= 3.01\dB$, 1 nat $= 4.34\dB$.
+- Widgets: $\KL{P_A}{P_B} = 0.357\dB$, $\quad\KL{P_B}{P_A} = 0.306\dB$.
+- Evidence is additive, so over $n$ independent widgets: $\KL{P_A^{\otimes n}}{P_B^{\otimes n}} = n\,\KL{P_A}{P_B}$.
+
+::: {.fragment}
+To gain $10\dB$: about [$10/0.357 \approx 28$]{.A} widgets if $A$ is true, about [$10/0.306 \approx 33$]{.B} if $B$ is true.
+:::
+
+::: {.notes}
+21:00–23:00. Write the definition on the board. "KL = the average log likelihood ratio, when you average over the truth."
+:::
+
+## Evidence as a random walk
+
+```{ojs}
+//| panel: input
+//| layout-ncol: 2
+viewof truth = Inputs.radio(["A (bad batch)", "B (good batch)"], {value: "A (bad batch)", label: "true hypothesis"})
+viewof reseed = Inputs.button("new widgets")
+```
+
+```{ojs}
+{
+  reseed;
+  const isA = truth.startsWith("A");
+  const p = isA ? 1/3 : 1/6, up = 10 * Math.log10(2), dn = 10 * Math.log10(0.8);
+  const drift = p * up + (1 - p) * dn, n = 60, paths = 30;
+  const rnd = d3.randomUniform.source(d3.randomLcg(Math.random()))();
+  const pts = [];
+  for (let j = 0; j < paths; j++) { let e = -10; pts.push({j, i: 0, e});
+    for (let i = 1; i <= n; i++) { e += rnd() < p ? up : dn; pts.push({j, i, e}); } }
+  const col = isA ? "#d55e00" : "#0072b2";
+  return Plot.plot({
+    width: 1150, height: 470, style: {fontSize: "16px"}, marginLeft: 55, marginBottom: 45, x: {label: "widgets tested n"}, y: {label: "e(A|DX) [dB]", domain: [-40, 30]},
+    marks: [
+      Plot.rectY([0], {x1: 0, x2: n, y1: 0, y2: 30, fill: "#d55e00", fillOpacity: 0.07}),
+      Plot.rectY([0], {x1: 0, x2: n, y1: -40, y2: -13, fill: "#0072b2", fillOpacity: 0.07}),
+      Plot.text(["reject"], {x: n, y: 3, textAnchor: "end", fill: "#d55e00", fontSize: 16}),
+      Plot.text(["accept"], {x: n, y: -16, textAnchor: "end", fill: "#0072b2", fontSize: 16}),
+      Plot.line(pts, {x: "i", y: "e", z: "j", stroke: col, strokeOpacity: 0.3}),
+      Plot.line([[0, -10], [n, -10 + drift * n]], {stroke: "black", strokeWidth: 3, strokeDasharray: "8,5"}),
+      Plot.text([`drift ${drift >= 0 ? "+" : ""}${drift.toFixed(3)} dB/widget`], {frameAnchor: "top-left", dx: 10, fontSize: 18})
+    ]
+  });
+}
+```
+
+::: {.notes}
+23:00–26:00. Toggle A/B and resample a few times. Steps are +3.01 or −0.97; the dashed line has slope ±KL. Individual paths wander, but by the LLN the average slope is KL. Point at the accept/reject bands: this *is* Jaynes' robot. Some B paths briefly enter "reject": those are type I errors.
+:::
+
+## Where does the evidence come from?
+
+![](fig/v3_pointwise.svg){fig-align="center" height="560"}
+
+::: {.notes}
+26:00–28:00. Batches of 10 widgets under A versus B. Some outcomes (k = 0, 1, 2) give evidence *against* the truth, which is misleading evidence. The individual terms can be negative, but the weighted total is always positive (next slide). Total = 3.57 dB = 10 × 0.357, so additivity checks out.
+:::
+
+# Part 4: Properties {background-color="#fdf5f0"}
+
+## Gibbs' inequality: $\KL{p}{q}\ge 0$
+
+::: {.columns}
+::: {.column width="36%"}
+![](fig/gibbs_tangent.svg){width="100%"}
+:::
+::: {.column width="64%"}
+**Lemma.** $\ln x \le x-1$, with equality iff $x=1$.
+[$\ln$ is concave, and $x-1$ is its tangent line at $x=1$.]{.small .muted}
+
+::: {.fragment}
+**Proof of Gibbs.** Put $x = q(x)/p(x)$:
+$$
+\begin{aligned}
+-\KL{p}{q} = \sum_x p\ln\frac{q}{p} &\le \sum_x p\left(\frac{q}{p}-1\right)\\
+&= \sum_x q - \sum_x p = 1 - 1 = 0.
+\end{aligned}
+$$
+:::
+::: {.fragment}
+Equality iff $q(x)=p(x)$ for every $x$ with $p(x)>0$. $\blacksquare$
+:::
+::: {.fragment}
+**In words:** on average, the data never mislead you.
+:::
+:::
+:::
+
+::: {.notes}
+28:00–32:00. Do this on the whiteboard if there is one. It needs no Jensen and no Taylor series, only the picture. Strictly the sum runs over x with p(x) > 0, so Σ q ≤ 1, which still works. The stretch task for the returning student is to redo it with Jensen's inequality.
+:::
+
+## Not symmetric, not a metric
+
+::: {.columns}
+::: {.column width="52%"}
+![](fig/v4_kl_heatmap.svg){width="100%"}
+:::
+::: {.column width="48%"}
+- $\KL{p}{q}\ne\KL{q}{p}$ in general. The heatmap is not symmetric about the diagonal.
+- It also fails the triangle inequality. It is a **divergence**, not a distance.
+- $\KL{p}{q}=\infty$ if $q(x)=0$ somewhere that $p(x)>0$: a single observation can then refute $q$ completely.
+- **History.** Turing and Good at Bletchley Park (Banburismus) scored evidence in *decibans* (= dB). Good (1950) is exactly where Jaynes' widget example comes from.
+:::
+:::
+
+::: {.notes}
+32:00–35:00. Ask: when is KL infinite? (q says impossible, p says possible.) Example: H = "coin is two-headed". Seeing one tail is infinite evidence against it.
+:::
+
+# Part 5: Hypothesis tests {background-color="#f3f8fc"}
+
+## Neyman–Pearson: the likelihood ratio is all you need
+
+Take $H_0$ = [$B$]{.B} (good batch) and $H_1$ = [$A$]{.A} (bad batch).
+
+- **Type I error** $\alpha$: rejecting a good batch. **Type II error** $\beta$: accepting a bad one.
+
+::: {.thm}
+[Neyman–Pearson lemma (1933).]{.thm-title} Among all tests with type I error $\le\alpha$, the one with the smallest $\beta$ rejects $H_0$ when
+$$
+\frac{P(D\mid H_1)}{P(D\mid H_0)} > k \quad\Longleftrightarrow\quad \text{evidence for } H_1 > 10\log_{10}k \dB.
+$$
+:::
+
+- Thresholding Jaynes' evidence is therefore the **optimal** frequentist test.
+  - The two schools disagree on how to *choose* $k$: Jaynes uses prior odds and losses (Ch 13–14), Neyman–Pearson uses a fixed $\alpha$.
+
+::: {.notes}
+35:00–38:00. No proof; the idea is in the appendix (it is a short exchange argument). Main message: the frequentist "most powerful test" is the same evidence threshold.
+:::
+
+## Stein's lemma: KL is the error exponent
+
+![](fig/v5_stein.svg){fig-align="center" width="1100"}
+
+::: {.thm .small}
+[Chernoff–Stein lemma.]{.thm-title} With $\alpha$ fixed, the best possible $\beta_n$ satisfies $\;\frac1n\log\beta_n \to -\KL{P_{H_0}}{P_{H_1}}$.
+:::
+
+::: {.notes}
+38:00–42:00. Left: β falls exponentially (a straight line in dB). Right: the per-widget rate approaches KL slowly, because there is a subexponential correction factor. Note which KL appears, D(P0‖P1): *expected evidence against H1 when H0 is true*, i.e. how fast an H0-world produces data that rule out H1. Stretch: Cover & Thomas §11.8.
+:::
+
+## Wald's SPRT is Jaynes' robot
+
+::: {.columns}
+::: {.column width="55%"}
+**Sequential probability ratio test** (Wald, 1945):
+
+- add up the log likelihood ratio one observation at a time
+- stop the first time it leaves $(a, b)$
+
+This is exactly the robot in §4.2, with $a=-13\dB$ and $b=0\dB$.
+
+**Wald–Wolfowitz (1948):** no test with the same $\alpha,\beta$ uses fewer observations on average.
+:::
+::: {.column width="45%"}
+::: {.ask}
+**Wald's approximation:** $\E[N] \approx \dfrac{\text{distance to the boundary}}{\text{drift}}$. Estimate it for both hypotheses.
+:::
+::: {.fragment}
+- [$A$ true]{.A}: $\dfrac{10\dB}{0.357} \approx 28$ widgets
+- [$B$ true]{.B}: $\dfrac{3\dB}{0.306} \approx 10$ widgets
+
+[Ignores overshoot and paths that hit the wrong boundary.]{.small .muted}
+:::
+:::
+:::
+
+::: {.notes}
+42:00–45:00. Tie it back to the random-walk slide: we just computed the expected run length of Jaynes' robot from KL. The robot rarely needs many widgets when the batch is good, because it starts at −10 dB.
+:::
+
+# Part 6: Why likelihoods concentrate {background-color="#fdf5f0"}
+
+## The law of large numbers, applied to log-likelihood
+
+Data $x_1,\dots,x_n$ come independently from $p_{\theta^\ast}$. For any $\theta$:
+$$
+\frac1n\log\frac{L(\theta)}{L(\theta^\ast)} = \frac1n\sum_{i=1}^n \log\frac{p_\theta(x_i)}{p_{\theta^\ast}(x_i)}
+\;\xrightarrow{\ \text{LLN}\ }\; \E_{\theta^\ast}\!\left[\log\frac{p_\theta}{p_{\theta^\ast}}\right] = -\KL{\theta^\ast}{\theta}.
+$$
+
+::: {.fragment}
+- The right-hand side is $<0$ for $\theta\ne\theta^\ast$ (Gibbs), so $L(\theta)/L(\theta^\ast)\approx e^{-n\KL{\theta^\ast}{\theta}}\to 0$.
+- So the likelihood (and therefore the posterior) piles up at $\theta^\ast$. This answers the question from the Bayes animation.
+:::
+
+::: {.notes}
+45:00–47:00. One line of algebra, then the picture on the next slide.
+:::
+
+## Watching it converge
+
+<video data-src="media/LikelihoodConcentration.mp4" controls width="1100" style="display:block;margin:0 auto;border:1px solid #eee"></video>
+
+::: {.notes}
+47:00–50:00. The curvature at the peak is the Fisher information I(θ) = 1/(θ(1−θ)). Curvature means sharpness: posterior width ≈ 1/√(n I(θ*)). For θ* = 0.7 and n = 150 that gives ≈ 0.037. Details (with a Taylor expansion) are in the appendix, for later.
+:::
+
+# Looking ahead {background-color="#f3f8fc"}
+
+## KL and entropy
+
+Let $u$ be uniform on $m$ outcomes. Then
+$$
+\KL{p}{u} = \sum_x p(x)\log\big(m\,p(x)\big) = \log m - H(p),\qquad H(p) = -\sum_x p(x)\log p(x).
+$$
+
+- Maximising entropy is the same as **minimising the KL divergence from uniform**: choose the distribution that is hardest to tell apart from "know nothing".
+- Ch 11 does this with constraints (MaxEnt), and Jaynes' general version replaces $u$ by a measure $m(x)$, giving $-\KL{p}{m}$.
+
+## Teaser: information geometry
+
+::: {}
+Close together, KL behaves like a squared distance: $\KL{\theta}{\theta+\delta}\approx\tfrac12 I(\theta)\,\delta^2$.
+The Bernoulli family becomes a **quarter circle of length $\pi$**.
+
+![](fig/geometry_quarter_circle.svg){height="380" fig-align="center"}
+:::
+
+::: {.notes}
+50:00–55:00. Keep this short and mainly to make them curious. If time is short, skip this slide. Point: equal steps in θ are NOT equally distinguishable; near 0 and 1 the dots are far apart, so the data tell θ=0.01 from θ=0.02 easily but not 0.50 from 0.51.
+:::
+
+## For next time {.smaller}
+
+**Everyone**
+
+1. Compute $\KL{\mathrm{Bern}(0.5)}{\mathrm{Bern}(0.9)}$ and the reverse, in dB. Which way round is larger? Explain the answer using "evidence".
+2. Poisson($\lambda$): show that $\KL{\lambda}{\lambda'} = \lambda\log\frac{\lambda}{\lambda'} + \lambda' - \lambda$, and that for $\lambda'=\lambda+\delta$ this is $\approx \delta^2/(2\lambda)$.
+3. Reading: _[fill in next chapter]_.
+
+**Stretch (returning student)**
+
+- Prove Gibbs' inequality using **Jensen's inequality**. Which step uses concavity?
+- Read the Chernoff–Stein lemma in Cover & Thomas §11.8 and present it in 5 minutes next session.
+
+[Resources: McDougall, *Six (and a half) intuitions for KL divergence* (LessWrong 2022) · MacKay, *ITILA* ch. 2 (free) · Caticha arXiv:1412.5633]{.small .muted}
+
+::: {.notes}
+55:00–60:00. Q2 sets up the Fisher information I(λ) = 1/λ and the √λ variance-stabilising transform for later.
+:::
+
+# Appendix {.unnumbered}
+
+## A1: Static versions of the widgets
+
+![](fig/v1_table_slices.svg){width="100%"}
+
+## A1b: Static evidence walks
+
+![](fig/v2_walks.svg){width="100%"}
+
+## A2: Fisher information from a Taylor expansion {.smaller}
+
+Bernoulli: $\KL{\theta}{\theta+\delta} = \theta\log\frac{\theta}{\theta+\delta} + (1-\theta)\log\frac{1-\theta}{1-\theta-\delta}$.
+
+Expand $\log(1+u) = u - \tfrac{u^2}{2} + O(u^3)$:
+$$
+\KL{\theta}{\theta+\delta} = \frac{\delta^2}{2\,\theta(1-\theta)} + O(\delta^3) = \tfrac12 I(\theta)\,\delta^2 + O(\delta^3),
+\qquad I(\theta) = \E\!\left[\left(\partial_\theta\log p_\theta\right)^2\right] = \frac{1}{\theta(1-\theta)}.
+$$
+(Checked in Wolfram Language.)
+
+- **Bernstein–von Mises.** Posterior $\approx \mathcal N\!\left(\hat\theta,\ \frac{1}{n\,I(\theta^\ast)}\right)$ for large $n$.
+- **Geometry.** $ds^2 = I(\theta)\,d\theta^2$. With $\theta = \sin^2\phi$ we get $ds = 2\,d\phi$, so $[0,1]$ has length $\int_0^1\frac{d\theta}{\sqrt{\theta(1-\theta)}} = \pi$. The Jeffreys prior $\propto\sqrt{I(\theta)}$ is Beta($\tfrac12,\tfrac12$).
+- **Three outcomes:** $p\mapsto 2\sqrt{p}$ sends the simplex to an octant of a sphere of radius 2. **Gaussian** $(\mu,\sigma)$: the Poincaré half-plane.
+
+## A3: Neyman–Pearson in one line {.smaller}
+
+Let $\phi^\ast$ be the likelihood-ratio test ($\phi^\ast = 1$ when $p_1 > k p_0$), and let $\phi$ be any other test with $\E_0\phi\le\E_0\phi^\ast=\alpha$. Then
+$$
+\sum_D (\phi^\ast - \phi)(p_1 - k\,p_0) \;\ge\; 0
+$$
+because the two factors always have the same sign. Rearranging gives $\E_1\phi^\ast - \E_1\phi \ge k(\E_0\phi^\ast - \E_0\phi) \ge 0$, so $\phi^\ast$ has at least as much power.
