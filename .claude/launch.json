@@ -1,6 +1,0 @@
-{
-  "version": "0.0.1",
-  "configurations": [
-    {"name": "deck", "runtimeExecutable": "python3", "runtimeArgs": ["-m", "http.server", "8766", "-d", "/Users/tok/drp_presentation_nov_2026/slides"], "port": 8766}
-  ]
-}

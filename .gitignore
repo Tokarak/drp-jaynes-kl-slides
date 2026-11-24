@@ -1,6 +1,0 @@
-.venv/
-build/
-.DS_Store
-slides/.quarto/
-slides/_site/
-slides/index_files/
