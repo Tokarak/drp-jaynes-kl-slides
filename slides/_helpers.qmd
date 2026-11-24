@@ -1,0 +1,122 @@
+```{ojs}
+//| output: false
+// ---- libraries, served locally from slides/vendor (no CDN) ----
+// (the standalone export inlines these as globals; see tools/make_standalone.py)
+req = require.alias({"d3@7.9.0/dist/d3.min.js": "./vendor/d3.min.js"})
+d3 = window.d3 ?? req("d3@7.9.0/dist/d3.min.js")
+Plot = window.Plot ?? req("./vendor/plot.umd.min.js")
+Plotly = window.Plotly ?? require("./vendor/plotly.min.js")
+katex = window.katex ?? require("./vendor/katex/katex.min.js")
+```
+
+```{ojs}
+//| output: false
+// ---- house style ----
+COL = ({A: "#d55e00", B: "#0072b2", C: "#009e73", grey: "#888", ink: "#222"})
+P = (o) => Plot.plot({
+  style: {fontSize: "17px", fontFamily: "inherit", background: "transparent", overflow: "visible"},
+  marginLeft: 60, marginBottom: 48, marginTop: 24, marginRight: 20, width: 560, height: 420,
+  ...o, x: {labelAnchor: "center", labelArrow: "none", ...o.x}, y: {labelAnchor: "center", labelArrow: "none", ...o.y}
+})
+```
+
+```{ojs}
+//| output: false
+// ---- maths (plain JS; log-space where it matters) ----
+db = (x) => 10 * Math.log10(x)
+lchoose = (n, k) => { let s = 0; for (let i = 1; i <= k; i++) s += Math.log(n - k + i) - Math.log(i); return s; }
+binom = (k, n, t) => (t <= 0 ? +(k === 0) : t >= 1 ? +(k === n)
+  : Math.exp(lchoose(n, k) + k * Math.log(t) + (n - k) * Math.log1p(-t)))
+lse = (a) => { const m = d3.max(a); return m === -Infinity ? m : m + Math.log(d3.sum(a, v => Math.exp(v - m))); }
+lseDb = (a) => { const m = d3.max(a); return m === -Infinity ? m : m + db(d3.sum(a, v => Math.pow(10, (v - m) / 10))); }
+klBern = (a, b) => a * db(a / b) + (1 - a) * db((1 - a) / (1 - b))       // dB
+grid = (lo, hi, n) => d3.range(n).map(i => lo + (hi - lo) * i / (n - 1))
+lgrid = (lo, hi, n) => grid(Math.log(lo), Math.log(hi), n).map(Math.exp)
+normGrid = (logw, h) => { const z = lse(logw) + Math.log(h); return logw.map(v => Math.exp(v - z)); }
+seeded = (seed) => d3.randomLcg(seed)
+expSample = (rnd, lam) => -Math.log(1 - rnd()) / lam
+fmt = (v) => { const a = Math.abs(v); return a >= 100 ? v.toFixed(0) : a >= 10 ? v.toFixed(1) : a >= 0.1 ? v.toFixed(2) : v.toPrecision(2); }
+// probability as TeX, e.g. 2.3 \times 10^{-7}
+texProb = (logp10) => { if (logp10 > -3) return Math.pow(10, logp10).toFixed(logp10 > -1 ? 3 : 4);
+  const e = Math.floor(logp10), m = Math.pow(10, logp10 - e); return `${m.toFixed(1)}\\times 10^{${e}}`; }
+```
+
+```{ojs}
+//| output: false
+// ---- TeX: render a string containing $...$ segments with KaTeX ----
+T = (s) => {
+  const span = document.createElement("span");
+  String(s).split(/(\$[^$]+\$)/).forEach(part => {
+    if (part.length > 1 && part[0] === "$" && part.at(-1) === "$") {
+      const m = document.createElement("span"); katex.render(part.slice(1, -1), m, {throwOnError: false}); span.append(m);
+    } else if (part) span.append(document.createTextNode(part));
+  });
+  return span;
+}
+```
+
+```{ojs}
+//| output: false
+// ---- UI helpers: big projector-friendly controls; labels may contain $...$ ----
+btn = (label, onclick, cls = "") => { const b = html`<button class="wbtn ${cls}"></button>`; b.append(T(label)); b.onclick = onclick; return b; }
+slider = ({label, min, max, step, value, fmt: f = (v) => v, oninput}) => {
+  const inp = html`<input type=range min=${min} max=${max} step=${step} value=${value}>`;
+  const out = html`<span class="wval">${f(+value)}</span>`;
+  inp.oninput = () => { out.textContent = f(+inp.value); oninput(+inp.value); };
+  const lab = html`<span class="wlab"></span>`; lab.append(T(label));
+  const el = html`<label class="wslider">${lab}${inp}${out}</label>`;
+  el.set = (v) => { inp.value = v; out.textContent = f(+v); };
+  el.input = inp;
+  return el;
+}
+// logarithmic slider: value passed to oninput is 10^position
+logSlider = ({label, min, max, value, oninput, f = fmt}) => slider({label, min: Math.log10(min), max: Math.log10(max), step: 0.01,
+  value: Math.log10(value), fmt: v => f(Math.pow(10, v)), oninput: v => oninput(Math.pow(10, v))})
+select = ({label, options, value, onchange}) => {
+  const s = document.createElement("select"); s.className = "wsel";
+  for (const o of options) { const op = document.createElement("option"); op.value = o; op.textContent = o; op.selected = o === value; s.append(op); }
+  s.onchange = () => onchange(s.value);
+  const lab = html`<span class="wlab"></span>`; lab.append(T(label));
+  const el = html`<label class="wslider">${lab}${s}</label>`; el.sel = s; return el;
+}
+toggle = (label, value, onchange) => {
+  const c = html`<input type=checkbox>`; c.checked = !!value;
+  c.onchange = () => onchange(c.checked);
+  const lab = html`<span class="wlab"></span>`; lab.append(T(label));
+  return html`<label class="wslider wtog">${c}${lab}</label>`;
+}
+row = (...els) => html`<div class="wrow">${els.flat()}</div>`
+caption = (t, c = COL.ink) => { const d = html`<div class="wcap" style="color:${c}"></div>`; d.append(T(t)); return d; }
+fig = (t, c, el) => {
+  const f = html`<div class="wfig">${caption(t, c)}${el}</div>`;
+  const w = el?.getAttribute?.("width"); if (w) f.style.width = `${w}px`;   // caption wraps to the plot's width
+  return f;
+}
+// table: rows of TeX strings
+texTable = (head, rows) => html`<table class="wtab"><thead><tr>${head.map(h => { const th = document.createElement("th"); th.append(T(h)); return th; })}</tr></thead>
+  <tbody>${rows.map(r => html`<tr>${r.map((c, j) => { const td = document.createElement("td"); if (j === 0) td.style.color = r.col ?? ""; td.append(T(c)); return td; })}</tr>`)}</tbody></table>`
+```
+
+```{ojs}
+//| output: false
+// ---- history widget: buttons append data, a scrub slider moves through it ----
+historyWidget = ({buttons, render, onReset = () => {}, reveal = "reveal truth", resetLabel = "reset", extra = []}) => {
+  const st = {obs: [], t: 0, reveal: false};
+  const out = html`<div class="wplots"></div>`;
+  const scrub = html`<input type=range class="scrub" min=0 max=0 step=1 value=0>`;
+  const nlab = html`<span class="wval">0</span>`;
+  const draw = () => { out.replaceChildren(...[render(st)].flat()); nlab.textContent = `${st.t}`; };
+  const sync = () => { scrub.max = st.obs.length; scrub.value = st.t; draw(); };
+  scrub.oninput = () => { st.t = +scrub.value; draw(); };
+  const add = (gen) => { st.obs = st.obs.slice(0, st.t).concat(gen(st)); st.t = st.obs.length; sync(); };
+  const bs = buttons.map(([lab, gen]) => btn(lab, () => add(gen)));
+  const reset = btn(resetLabel, () => { st.obs = []; st.t = 0; st.reveal = false; onReset(st); sync(); }, "wquiet");
+  const rev = reveal ? btn(reveal, () => { st.reveal = !st.reveal; draw(); }, "wquiet") : "";
+  onReset(st);
+  const hl = html`<span class="wlab">history</span>`;
+  const el = html`<div class="widget">${row(bs, reset, rev, html`<label class="wslider">${hl}${scrub}${nlab}</label>`, extra)}${out}</div>`;
+  el.st = st; el.add = add; el.draw = draw; el.sync = sync;
+  sync();
+  return el;
+}
+```
